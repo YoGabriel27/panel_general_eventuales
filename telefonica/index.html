@@ -182,6 +182,7 @@ async function storageGet(cliente) {
     r2Base: state.r2Base || {},
     historial: state.historial || [],
     meta: state.meta || { lastR1: null, lastR2: null, lastR1UploadId: null, lastR2UploadId: null },
+    sharepointUrl: state.sharepointUrl || "",
   };
 }
 
@@ -192,12 +193,25 @@ async function storageSet(cliente, state) {
     r2Base: state.r2Base || {},
     historial: historialRecortado,
     meta: state.meta || {},
+    sharepointUrl: state.sharepointUrl || "",
   };
   const { error } = await supabaseClient
     .from("app_state")
     .upsert({ key: stateKeyPara(cliente), data: payload, updated_at: new Date().toISOString() });
   if (error) console.error("storageSet", error);
   return !error;
+}
+
+/* Convierte un link de "compartir" de SharePoint/OneDrive en uno de
+   descarga directa. Solo funciona si el archivo está compartido como
+   público (cualquiera con el link, sin iniciar sesión); si no, el fetch
+   va a fallar (probablemente por CORS o por pedir login) y se lo
+   informamos al usuario en vez de fallar en silencio. */
+function sharepointDownloadUrl(url) {
+  const u = String(url || "").trim();
+  if (!u) return "";
+  const sep = u.includes("?") ? "&" : "?";
+  return `${u}${sep}download=1`;
 }
 const APP_LOGO = "data:image/png;base64,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";
 
@@ -814,6 +828,7 @@ function ThSortFilter({ col, ctl }) {
 --------------------------------------------------------- */
 const IconCheck = (p) => <Icon {...p}><path d="M20 6 9 17l-5-5" /></Icon>;
 const IconRefresh = (p) => <Icon {...p}><path d="M20 11A8 8 0 0 0 6.3 6.3L4 8.6" /><path d="M4 4v4.6h4.6" /><path d="M4 13a8 8 0 0 0 13.7 4.7l2.3-2.3" /><path d="M20 20v-4.6h-4.6" /></Icon>;
+const IconCloud = (p) => <Icon {...p}><path d="M7 18h10a4 4 0 0 0 0-8 5.5 5.5 0 0 0-10.5-1.5A4.5 4.5 0 0 0 7 18Z" /><path d="M12 12v6" /><path d="M9.5 15.5 12 13l2.5 2.5" /></Icon>;
 
 /* Selector de cliente (Telefónica / Claro / ...). Cambia qué datos
    de seguimiento se ven. */
@@ -1152,6 +1167,9 @@ function App() {
   const [pendingImport, setPendingImport] = useState(null);
   const importInputRef = useRef(null);
   const filesInputRef = useRef(null);
+  const [sharepointUrl, setSharepointUrl] = useState("");
+  const [showSharepointConfig, setShowSharepointConfig] = useState(false);
+  const [sharepointUrlDraft, setSharepointUrlDraft] = useState("");
 
   const [fReporte, setFReporte] = useState("");
   const [fTipo, setFTipo] = useState("");
@@ -1185,6 +1203,7 @@ function App() {
         setR2Base(parsed.r2Base || {});
         setHistorial(parsed.historial || []);
         setMeta(parsed.meta || { lastR1: null, lastR2: null, lastR1UploadId: null, lastR2UploadId: null });
+        setSharepointUrl(parsed.sharepointUrl || "");
       }
       setLastSync(new Date());
     } finally {
@@ -1204,11 +1223,13 @@ function App() {
         setR2Base(parsed.r2Base || {});
         setHistorial(parsed.historial || []);
         setMeta(parsed.meta || { lastR1: null, lastR2: null, lastR1UploadId: null, lastR2UploadId: null });
+        setSharepointUrl(parsed.sharepointUrl || "");
       } else {
         setR1Base({});
         setR2Base({});
         setHistorial([]);
         setMeta({ lastR1: null, lastR2: null, lastR1UploadId: null, lastR2UploadId: null });
+        setSharepointUrl("");
       }
       setLastSync(new Date());
       setLoaded(true);
@@ -1221,10 +1242,17 @@ function App() {
     return () => clearInterval(interval);
   }, [refreshShared]);
 
-  const persist = useCallback(async (state) => {
-    const ok = await storageSet(cliente, state);
+  const persist = useCallback(async (patch) => {
+    const payload = {
+      r1Base: patch.r1Base !== undefined ? patch.r1Base : r1Base,
+      r2Base: patch.r2Base !== undefined ? patch.r2Base : r2Base,
+      historial: patch.historial !== undefined ? patch.historial : historial,
+      meta: patch.meta !== undefined ? patch.meta : meta,
+      sharepointUrl: patch.sharepointUrl !== undefined ? patch.sharepointUrl : sharepointUrl,
+    };
+    const ok = await storageSet(cliente, payload);
     if (!ok) setError("No se pudo guardar en GitHub (revisá el token/configuración, o probá de nuevo en unos segundos).");
-  }, [cliente]);
+  }, [cliente, r1Base, r2Base, historial, meta, sharepointUrl]);
 
   const handleFiles = useCallback(async (fileList) => {
     setError("");
@@ -1294,12 +1322,40 @@ function App() {
     }
   }, [r1Base, r2Base, historial, meta, uploadDate, persist]);
 
+  const handleFetchFromSharePoint = useCallback(async () => {
+    setError("");
+    if (!sharepointUrl) { setShowSharepointConfig(true); return; }
+    setBusy(true);
+    try {
+      const res = await fetch(sharepointDownloadUrl(sharepointUrl));
+      if (!res.ok) throw new Error(`SharePoint respondió con error ${res.status}.`);
+      const buf = await res.arrayBuffer();
+      const archivoFalso = { name: "SharePoint", arrayBuffer: async () => buf };
+      await handleFiles([archivoFalso]);
+    } catch (e) {
+      setError(
+        "No se pudo traer el archivo desde SharePoint. Lo más probable es que el link haya dejado de ser público, o que " +
+        "Microsoft bloquee la descarga automática desde otra página (CORS). Revisá el permiso del archivo (\"cualquiera con el " +
+        "link puede ver\"), o seguí usando \"Cargar Reportes\" mientras tanto. Detalle: " + (e.message || "error desconocido")
+      );
+    } finally {
+      setBusy(false);
+    }
+  }, [sharepointUrl, handleFiles]);
+
+  const guardarSharepointUrl = useCallback(async () => {
+    const limpio = sharepointUrlDraft.trim();
+    setSharepointUrl(limpio);
+    await persist({ sharepointUrl: limpio });
+    setShowSharepointConfig(false);
+  }, [sharepointUrlDraft, persist]);
+
   const resetAll = useCallback(async () => {
     setR1Base({}); setR2Base({}); setHistorial([]); setMeta({ lastR1: null, lastR2: null, lastR1UploadId: null, lastR2UploadId: null });
     setAlertBanner(null); setShowResetConfirm(false);
-    const ok = await storageSet(cliente, { r1Base: {}, r2Base: {}, historial: [], meta: {} });
+    const ok = await storageSet(cliente, { r1Base: {}, r2Base: {}, historial: [], meta: {}, sharepointUrl });
     if (!ok) setError("No se pudo reiniciar la base en GitHub (revisá el token/configuración).");
-  }, [cliente]);
+  }, [cliente, sharepointUrl]);
 
   const historialEnriquecido = useMemo(() => historial.map((h) => ({
     ...h,
@@ -1440,7 +1496,7 @@ function App() {
     const newHistorial = pendingImport.historial || [];
     const newMeta = pendingImport.meta || { lastR1: null, lastR2: null, lastR1UploadId: null, lastR2UploadId: null };
     setR1Base(newR1); setR2Base(newR2); setHistorial(newHistorial); setMeta(newMeta);
-    const ok = await storageSet(cliente, { r1Base: newR1, r2Base: newR2, historial: newHistorial, meta: newMeta });
+    const ok = await storageSet(cliente, { r1Base: newR1, r2Base: newR2, historial: newHistorial, meta: newMeta, sharepointUrl });
     if (ok) {
       setAlertBanner({ message: `Copia de seguridad restaurada y guardada en GitHub (exportada el ${pendingImport.exportedAt ? pendingImport.exportedAt.slice(0,10) : "?"}): ${Object.keys(newR1).length} tareas de Reporte 1, ${Object.keys(newR2).length} de Reporte 2, ${newHistorial.length} eventos en el historial.` });
     } else {
@@ -1610,6 +1666,12 @@ function App() {
               className="p-2.5 rounded-xl"
               style={{ background: `linear-gradient(135deg, ${C.primary}, ${C.violet})`, color: "#FFFFFF", opacity: busy ? 0.6 : 1 }}>
               <IconUpload size={16} />
+            </button>
+            <button onClick={handleFetchFromSharePoint} disabled={busy}
+              title={sharepointUrl ? (busy ? "Actualizando..." : "Actualizar desde SharePoint") : "Configurar link de SharePoint"}
+              className="p-2.5 rounded-xl"
+              style={{ background: `linear-gradient(135deg, #0078D4, #004E8C)`, color: "#FFFFFF", opacity: busy ? 0.6 : 1 }}>
+              <IconCloud size={16} />
             </button>
             <button onClick={exportExcel} title="Exportar a Excel"
               className="p-2.5 rounded-xl"
@@ -2092,8 +2154,50 @@ function App() {
               <strong style={{ color: C.textLight }}>Para instalarla como app en el celular:</strong> abrí este link desde el navegador del teléfono
               (Chrome en Android o Safari en iPhone) y elegí "Agregar a pantalla de inicio" desde el menú (⋮ o el botón de compartir).
               Va a quedar como un ícono más, con el logo y el nombre "Seguimiento de Eventuales".
+              <br /><br />
+              <strong style={{ color: C.textLight }}>Actualizar desde SharePoint (ícono azul de nube):</strong> trae el archivo directo
+              desde el link configurado y lo procesa igual que si lo hubieras subido a mano. Solo funciona si el archivo está
+              compartido como "cualquiera con el link puede ver, sin iniciar sesión" — si Microsoft bloquea la descarga, seguí
+              usando "Cargar Reportes" mientras tanto.
+              {sharepointUrl ? (
+                <div className="mt-2 px-3 py-2 rounded-lg text-[11px] break-all" style={{ backgroundColor: C.cardAlt, color: C.textLight }}>{sharepointUrl}</div>
+              ) : (
+                <div className="mt-2 text-[11px]" style={{ color: C.rose }}>Todavía no hay ningún link configurado.</div>
+              )}
+              <button onClick={() => { setSharepointUrlDraft(sharepointUrl); setShowInfoPanel(false); setShowSharepointConfig(true); }}
+                className="mt-2 text-xs font-semibold px-3 py-2 rounded-lg" style={{ backgroundColor: C.primarySoft, color: C.primary }}>
+                {sharepointUrl ? "Cambiar el link" : "Configurar el link"}
+              </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* MODAL: configurar link de SharePoint */}
+      {showSharepointConfig && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ backgroundColor: "rgba(20,35,28,0.45)" }}>
+          <Card className="p-6 max-w-md w-full">
+            <div className="flex items-center gap-2 mb-3">
+              <IconCloud size={18} color="#0078D4" />
+              <span className="font-bold text-sm" style={{ color: C.textLight }}>Link de SharePoint</span>
+            </div>
+            <p className="text-sm mb-3" style={{ color: C.textMuted }}>
+              Pegá el link completo para compartir el archivo (el que da SharePoint al tocar "Compartir"). Este link se guarda
+              para todos los que usan la app.
+            </p>
+            <input value={sharepointUrlDraft} onChange={(e) => setSharepointUrlDraft(e.target.value)}
+              placeholder="https://....sharepoint.com/:x:/g/personal/..."
+              className="w-full px-3 py-2.5 rounded-xl text-sm outline-none mb-2"
+              style={{ border: `1px solid ${C.border}`, backgroundColor: C.cardAlt, color: C.textLight }} />
+            <p className="text-xs mb-4" style={{ color: C.textMuted }}>
+              Importante: el archivo tiene que estar compartido como <strong style={{ color: C.textLight }}>"Cualquiera con el link puede ver"</strong>,
+              sin pedir inicio de sesión, o Microsoft va a bloquear la descarga automática.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowSharepointConfig(false)} className="px-4 py-2 rounded-xl text-sm font-semibold" style={{ backgroundColor: C.cardAlt, color: C.textLight }}>Cancelar</button>
+              <button onClick={guardarSharepointUrl} className="px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: `linear-gradient(135deg, #0078D4, #004E8C)`, color: "#FFFFFF" }}>Guardar</button>
+            </div>
+          </Card>
         </div>
       )}
 
