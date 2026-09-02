@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Seguimiento de Eventuales — Claro</title>
+<meta name="theme-color" content="#B3211E" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Eventuales Claro" />
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+  html, body { margin:0; padding:0; background:#F7F3F3; font-family:'Inter', system-ui, sans-serif; }
+  #bg-glow {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(600px 400px at 8% 8%, rgba(179,33,30,0.06), transparent 60%),
+      radial-gradient(700px 500px at 95% 15%, rgba(179,33,30,0.08), transparent 60%),
+      radial-gradient(800px 600px at 50% 100%, rgba(232,205,203,0.25), transparent 60%);
+  }
+  #root { position: relative; z-index: 1; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: #F0E4E3; }
+  ::-webkit-scrollbar-thumb { background: #D9B8B6; border-radius: 8px; }
+  ::-webkit-scrollbar-thumb:hover { background: #C99795; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .spin-icon { animation: spin 0.9s linear infinite; }
+  table.grid-editable input {
+    width: 100%; background: transparent; border: 1px solid transparent; border-radius: 6px;
+    padding: 4px 6px; font-size: 12.5px; color: inherit; font-family: inherit;
+  }
+  table.grid-editable input:hover { border-color: #E8D4D3; }
+  table.grid-editable input:focus {
+    outline: none; border-color: #B3211E; background: #FFFFFF; box-shadow: 0 0 0 2px rgba(179,33,30,0.12);
+  }
+</style>
+</head>
+<body>
+<div id="bg-glow"></div>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+/* ---------------------------------------------------------
+   TOKENS DE DISEÑO — identidad Claro (rojo), misma estructura
+   visual que la app de Telefónica pero con paleta propia.
+--------------------------------------------------------- */
+const C = {
+  bg: "#F7F3F3",
+  card: "#FFFFFF",
+  cardAlt: "#F5EBEA",
+  primary: "#B3211E",
+  primarySoft: "rgba(179,33,30,0.10)",
+  violet: "#5C1414",
+  violetSoft: "rgba(92,20,20,0.10)",
+  teal: "#2F8F5B",
+  tealSoft: "rgba(47,143,91,0.14)",
+  rose: "#8C1D1D",
+  roseSoft: "rgba(140,29,29,0.10)",
+  blue: "#3E72B0",
+  blueSoft: "rgba(62,114,176,0.12)",
+  orange: "#C9822E",
+  orangeSoft: "rgba(201,130,46,0.14)",
+  textLight: "#2A1E1E",
+  textMuted: "#8A7473",
+  border: "#E8D4D3",
+};
+
+/* ---------------------------------------------------------
+   ICONOS
+--------------------------------------------------------- */
+const Icon = ({ children, size = 16, color = "currentColor", className = "" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    {children}
+  </svg>
+);
+const IconUpload = (p) => <Icon {...p}><path d="M12 16V4M12 4l-5 5M12 4l5 5" /><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /></Icon>;
+const IconDownload = (p) => <Icon {...p}><path d="M12 4v12M12 16l-5-5M12 16l5-5" /><path d="M4 17v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /></Icon>;
+const IconAlert = (p) => <Icon {...p}><path d="M12 3 2 20h20L12 3Z" /><path d="M12 10v4" /><path d="M12 17.5h.01" /></Icon>;
+const IconX = (p) => <Icon {...p}><path d="M18 6 6 18" /><path d="M6 6l12 12" /></Icon>;
+const IconSave = (p) => <Icon {...p}><path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z" /><path d="M8 4v5h7V4" /><path d="M8 14h8v6H8z" /></Icon>;
+const IconFileUp = (p) => <Icon {...p}><path d="M6 3h8l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" /><path d="M12 17v-6" /><path d="M9.5 13.5 12 11l2.5 2.5" /></Icon>;
+const IconTrash = (p) => <Icon {...p}><path d="M4 7h16" /><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" /><path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13" /></Icon>;
+const IconPlus = (p) => <Icon {...p}><path d="M12 5v14" /><path d="M5 12h14" /></Icon>;
+const IconSearch = (p) => <Icon {...p}><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></Icon>;
+const IconRefresh = (p) => <Icon {...p}><path d="M20 11A8 8 0 0 0 6.3 6.3L4 8.6" /><path d="M4 4v4.6h4.6" /><path d="M4 13a8 8 0 0 0 13.7 4.7l2.3-2.3" /><path d="M20 20v-4.6h-4.6" /></Icon>;
+const IconCloud = (p) => <Icon {...p}><path d="M7 18h10a4 4 0 0 0 0-8 5.5 5.5 0 0 0-10.5-1.5A4.5 4.5 0 0 0 7 18Z" /><path d="M12 12v6" /><path d="M9.5 15.5 12 13l2.5 2.5" /></Icon>;
+const IconInfo = (p) => <Icon {...p}><circle cx="12" cy="12" r="9" /><path d="M12 11v5.5" /><path d="M12 7.5h.01" /></Icon>;
+
+/* ---------------------------------------------------------
+   SUPABASE — mismo proyecto que Telefónica, otra clave en app_state.
+   Claro guarda sus filas bajo su propia clave, así que no comparte
+   ni pisa nada de la base de Telefónica.
+--------------------------------------------------------- */
+const SUPABASE_URL = "https://zewgswnatkthgzqahdeq.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpld2dzd25hdGt0aGd6cWFoZGVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcwNzE1NjcsImV4cCI6MjEwMjY0NzU2N30.U1P9eE4hGefV9h-dAy98-cw5p98ktFOnIPvfoghvcjc";
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const CLARO_LOGO = "data:image/png;base64,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";
+
+
+const CLARO_STATE_KEY = "estado_claro_v1";
+
+async function storageGet() {
+  const { data, error } = await supabaseClient
+    .from("app_state").select("data").eq("key", CLARO_STATE_KEY).maybeSingle();
+  if (error || !data) return null;
+  const state = data.data || {};
+  return { rows: state.rows || [], lastUpload: state.lastUpload || null, sheetUrl: state.sheetUrl || "" };
+}
+
+async function storageSet(state) {
+  const payload = { rows: state.rows || [], lastUpload: state.lastUpload || null, sheetUrl: state.sheetUrl || "" };
+  const { error } = await supabaseClient
+    .from("app_state")
+    .upsert({ key: CLARO_STATE_KEY, data: payload, updated_at: new Date().toISOString() });
+  if (error) console.error("storageSet", error);
+  return !error;
+}
+
+/* Extrae el ID de un link de Google Sheets pegado tal cual (o ya el ID
+   solo, si alguien lo pega directamente). Formato típico:
+   https://docs.google.com/spreadsheets/d/{ID}/edit?gid=... */
+function extraerIdGoogleSheet(texto) {
+  const t = String(texto || "").trim();
+  const m = t.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (m) return m[1];
+  if (/^[a-zA-Z0-9-_]{20,}$/.test(t)) return t; // ya parece un ID solo
+  return "";
+}
+function sheetExportUrl(id) {
+  return `https://docs.google.com/spreadsheets/d/${id}/export?format=xlsx`;
+}
+
+/* ---------------------------------------------------------
+   UTILIDADES
+--------------------------------------------------------- */
+function uid() { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`; }
+function todayISO() { return new Date().toISOString().slice(0, 10); }
+function excelSerialToISO(v) {
+  // Convierte un número de serie de fecha de Excel a "YYYY-MM-DD". Si no
+  // parece un número de serie válido, devuelve el valor original sin tocar.
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 20000 || n > 60000) return v == null ? "" : String(v).trim();
+  const d = new Date(Math.round((n - 25569) * 86400 * 1000));
+  if (isNaN(d.getTime())) return String(v).trim();
+  return d.toISOString().slice(0, 10);
+}
+function normalizeHeader(h) {
+  return String(h || "")
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // saca acentos
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/* ---------------------------------------------------------
+   DEFINICIÓN DE COLUMNAS
+   Mismos campos que la planilla original de Claro. Todo se guarda y
+   edita como texto libre (no se fuerza formato de fecha/número) porque
+   la fuente real trae datos mixtos (ej. "falta nro recepcion" en FC).
+--------------------------------------------------------- */
+const COLUMNS = [
+  { key: "ppto", label: "Ppto", width: 60 },
+  { key: "cta", label: "Cta", width: 55 },
+  { key: "descripcion", label: "Eventual (código y descripción)", width: 320 },
+  { key: "edificio", label: "Edificio", width: 160 },
+  { key: "referente", label: "Referente", width: 140 },
+  { key: "fechaRecepcion", label: "Fecha recepción", width: 110 },
+  { key: "fechaEnvio", label: "Fecha envío", width: 110 },
+  { key: "mes", label: "Mes", width: 90 },
+  { key: "montoSIva", label: "Monto S/IVA", width: 120 },
+  { key: "fechaAprobacion", label: "Fecha aprobación", width: 110 },
+  { key: "aprobacion", label: "Aprobación", width: 90 },
+  { key: "ejecucion", label: "Ejecución", width: 90 },
+  { key: "fechaEjecucion", label: "Fecha ejecución", width: 110 },
+  { key: "oc", label: "OC", width: 130 },
+  { key: "fc", label: "FC", width: 130 },
+  { key: "fechaActualizacion", label: "Fecha actualización", width: 110 },
+  { key: "estadoNota", label: "Estado / Nota", width: 180 },
+];
+
+function filaVacia() {
+  const f = { id: uid() };
+  COLUMNS.forEach((c) => { f[c.key] = ""; });
+  return f;
+}
+
+/* Heurística de mapeo de encabezados: tolerante a años distintos en el
+   título de la columna y a las erratas reales de la planilla
+   ("APOBACION", "fecha actalizacion"). Se evalúa en este orden porque
+   los campos con "fecha" tienen que capturarse antes que sus
+   contrapartes sin fecha (ej. "fecha aprobación" antes que "aprobación"). */
+function detectarColumna(headerNorm) {
+  const h = headerNorm;
+  if (h === "ppto") return "ppto";
+  if (h === "cta") return "cta";
+  if (h.includes("eventual")) return "descripcion";
+  if (h === "edificio") return "edificio";
+  if (h.includes("referente")) return "referente";
+  if (h.includes("recepcion")) return "fechaRecepcion";
+  if (h.includes("envio")) return "fechaEnvio";
+  if (h === "mes") return "mes";
+  if (h.includes("monto")) return "montoSIva";
+  if (h.includes("fecha") && (h.includes("aprobac") || h.includes("apobac"))) return "fechaAprobacion";
+  if (h.includes("aprobac") || h.includes("apobac")) return "aprobacion";
+  if (h.includes("fecha") && h.includes("ejecuc")) return "fechaEjecucion";
+  if (h.includes("ejecuc")) return "ejecucion";
+  if (h === "oc") return "oc";
+  if (h === "fc") return "fc";
+  if (h.includes("actualiz") || h.includes("actaliz")) return "fechaActualizacion";
+  if (h.includes("estado") || h.includes("nota")) return "estadoNota";
+  return null;
+}
+
+const CAMPOS_FECHA = new Set(["fechaRecepcion", "fechaEnvio", "fechaAprobacion", "fechaEjecucion", "fechaActualizacion"]);
+
+/* Lee un workbook y arma filas a partir de TODAS las hojas cuyo
+   encabezado reconoce como planilla de eventuales (así entran tanto
+   "Eventuales Claro" como continuaciones tipo "Hoja 2"); ignora hojas
+   que no matchean lo suficiente (ej. el padrón de edificios, o una
+   tabla dinámica). */
+function parseWorkbookClaro(workbook) {
+  const filasTotales = [];
+  const hojasUsadas = [];
+  workbook.SheetNames.forEach((nombreHoja) => {
+    const sheet = workbook.Sheets[nombreHoja];
+    const matriz = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
+    // Busca, entre las primeras filas, la que más columnas conocidas mapea.
+    let mejorFila = -1, mejorMapa = null, mejorScore = 0;
+    for (let i = 0; i < Math.min(matriz.length, 8); i++) {
+      const fila = matriz[i];
+      if (!fila || !fila.some((c) => String(c || "").trim())) continue;
+      const mapa = {};
+      let score = 0;
+      fila.forEach((celda, idx) => {
+        const campo = detectarColumna(normalizeHeader(celda));
+        if (campo && !(campo in mapa)) { mapa[campo] = idx; score++; }
+      });
+      if (score > mejorScore) { mejorScore = score; mejorFila = i; mejorMapa = mapa; }
+    }
+    // Umbral: al menos descripción + 5 campos más reconocidos para
+    // considerar que esta hoja es realmente una planilla de eventuales.
+    if (mejorScore < 6 || !mejorMapa || mejorMapa.descripcion === undefined) return;
+    hojasUsadas.push(nombreHoja);
+    for (let i = mejorFila + 1; i < matriz.length; i++) {
+      const fila = matriz[i];
+      if (!fila || !fila.some((c) => String(c || "").trim())) continue;
+      const nueva = filaVacia();
+      Object.entries(mejorMapa).forEach(([campo, idx]) => {
+        let v = fila[idx];
+        if (v === undefined || v === null) v = "";
+        if (CAMPOS_FECHA.has(campo)) v = excelSerialToISO(v);
+        else if (typeof v === "number") v = String(v);
+        nueva[campo] = String(v).trim();
+      });
+      // Salteá filas realmente vacías (sin descripción ni edificio)
+      if (!nueva.descripcion && !nueva.edificio) continue;
+      filasTotales.push(nueva);
+    }
+  });
+  return { filas: filasTotales, hojas: hojasUsadas };
+}
+
+/* ---------------------------------------------------------
+   BADGE DE ESTADO
+--------------------------------------------------------- */
+const ESTADO_COLORS = {
+  "PENDIENTE": { bg: C.orangeSoft, fg: C.orange },
+  "FINALIZADO": { bg: C.tealSoft, fg: C.teal },
+  "ANULADO": { bg: C.roseSoft, fg: C.rose },
+};
+function colorParaEstado(v) {
+  const key = String(v || "").trim().toUpperCase();
+  if (ESTADO_COLORS[key]) return ESTADO_COLORS[key];
+  if (key.includes("FINALIZADO")) return { bg: C.tealSoft, fg: C.teal };
+  if (key.includes("ANULA")) return { bg: C.roseSoft, fg: C.rose };
+  if (key.includes("PENDIENTE")) return { bg: C.orangeSoft, fg: C.orange };
+  if (!key) return { bg: "rgba(0,0,0,0.05)", fg: C.textMuted };
+  return { bg: C.blueSoft, fg: C.blue };
+}
+
+/* ---------------------------------------------------------
+   COMPONENTES CHICOS
+--------------------------------------------------------- */
+function Card({ children, className = "", style = {} }) {
+  return (
+    <div className={`rounded-2xl ${className}`} style={{ backgroundColor: C.card, border: `1px solid ${C.border}`, ...style }}>
+      {children}
+    </div>
+  );
+}
+
+function KPI({ label, value, accent, onClick }) {
+  const clickable = typeof onClick === "function";
+  return (
+    <Card className={`p-4 sm:p-5 min-w-0 transition-transform ${clickable ? "cursor-pointer hover:-translate-y-0.5" : ""}`}>
+      {clickable ? (
+        <button onClick={onClick} className="w-full text-left" style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
+          <div className="text-[11px] sm:text-xs font-semibold tracking-wide uppercase mb-1.5 truncate" style={{ color: C.textMuted }}>{label}</div>
+          <div className="text-2xl sm:text-3xl font-extrabold leading-tight" style={{ color: accent || C.textLight }}>{value}</div>
+        </button>
+      ) : (
+        <React.Fragment>
+          <div className="text-[11px] sm:text-xs font-semibold tracking-wide uppercase mb-1.5 truncate" style={{ color: C.textMuted }}>{label}</div>
+          <div className="text-2xl sm:text-3xl font-extrabold leading-tight" style={{ color: accent || C.textLight }}>{value}</div>
+        </React.Fragment>
+      )}
+    </Card>
+  );
+}
+
+/* Celda editable: input controlado localmente, y recién avisa al padre
+   (que guarda en Supabase) al perder el foco, para no disparar un
+   guardado por cada tecla. */
+function CeldaEditable({ value, onCommit, mono }) {
+  const [val, setVal] = useState(value || "");
+  useEffect(() => { setVal(value || ""); }, [value]);
+  return (
+    <input
+      value={val}
+      onChange={(e) => setVal(e.target.value)}
+      onBlur={() => { if (val !== (value || "")) onCommit(val); }}
+      style={{ fontFamily: mono ? "monospace" : "inherit" }}
+    />
+  );
+}
+
+/* ---------------------------------------------------------
+   COMPONENTE PRINCIPAL
+--------------------------------------------------------- */
+function App() {
+  const [rows, setRows] = useState([]);
+  const [lastUpload, setLastUpload] = useState(null);
+  const [sheetUrl, setSheetUrl] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastSync, setLastSync] = useState(null);
+
+  const [busqueda, setBusqueda] = useState("");
+  const [fEstado, setFEstado] = useState("");
+  const [fEdificio, setFEdificio] = useState("");
+
+  const [showInfoPanel, setShowInfoPanel] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showImportConfirm, setShowImportConfirm] = useState(false);
+  const [pendingImport, setPendingImport] = useState(null);
+  const [importMode, setImportMode] = useState("reemplazar"); // reemplazar | agregar
+  const [showSheetConfig, setShowSheetConfig] = useState(false);
+  const [sheetUrlDraft, setSheetUrlDraft] = useState("");
+  const filesInputRef = useRef(null);
+  const jsonInputRef = useRef(null);
+
+  const refreshShared = useCallback(async (manual) => {
+    if (manual) setRefreshing(true);
+    try {
+      const parsed = await storageGet();
+      if (parsed) {
+        setRows(parsed.rows || []);
+        setLastUpload(parsed.lastUpload || null);
+        setSheetUrl(parsed.sheetUrl || "");
+      }
+      setLastSync(new Date());
+    } finally {
+      if (manual) setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      const parsed = await storageGet();
+      if (parsed) {
+        setRows(parsed.rows || []);
+        setLastUpload(parsed.lastUpload || null);
+        setSheetUrl(parsed.sheetUrl || "");
+      }
+      setLastSync(new Date());
+      setLoaded(true);
+    })();
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => refreshShared(false), 15000);
+    return () => clearInterval(interval);
+  }, [refreshShared]);
+
+  const persist = useCallback(async (patch) => {
+    const ok = await storageSet({
+      rows: patch.rows !== undefined ? patch.rows : rows,
+      lastUpload: patch.lastUpload !== undefined ? patch.lastUpload : lastUpload,
+      sheetUrl: patch.sheetUrl !== undefined ? patch.sheetUrl : sheetUrl,
+    });
+    if (!ok) setError("No se pudo guardar en la base compartida. Probá de nuevo en unos segundos.");
+  }, [rows, lastUpload, sheetUrl]);
+
+  const actualizarCelda = useCallback((id, campo, valor) => {
+    setRows((prev) => {
+      const next = prev.map((r) => (r.id === id ? { ...r, [campo]: valor } : r));
+      persist({ rows: next });
+      return next;
+    });
+  }, [persist]);
+
+  const agregarFila = useCallback(() => {
+    setRows((prev) => {
+      const next = [filaVacia(), ...prev];
+      persist({ rows: next });
+      return next;
+    });
+  }, [persist]);
+
+  const eliminarFila = useCallback((id) => {
+    setRows((prev) => {
+      const next = prev.filter((r) => r.id !== id);
+      persist({ rows: next });
+      return next;
+    });
+  }, [persist]);
+
+  const handleFiles = useCallback(async (fileList) => {
+    setError("");
+    setBusy(true);
+    try {
+      const file = fileList[0];
+      const buf = await file.arrayBuffer();
+      const workbook = XLSX.read(buf, { type: "array", cellDates: false });
+      const { filas, hojas } = parseWorkbookClaro(workbook);
+      if (filas.length === 0) {
+        throw new Error("No se reconoció ninguna hoja con el formato esperado (Ppto, Eventual, Edificio, Referente, ...).");
+      }
+      setPendingImport({ filas, hojas, nombreArchivo: file.name });
+      setShowImportConfirm(true);
+    } catch (e) {
+      setError(e.message || "No se pudo leer el archivo.");
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const handleFetchFromSheet = useCallback(async () => {
+    setError("");
+    if (!sheetUrl) { setShowSheetConfig(true); return; }
+    const id = extraerIdGoogleSheet(sheetUrl);
+    if (!id) { setError("El link de Google Sheets configurado no parece válido."); return; }
+    setBusy(true);
+    try {
+      const res = await fetch(sheetExportUrl(id));
+      if (!res.ok) throw new Error(`Google respondió con error ${res.status}.`);
+      const buf = await res.arrayBuffer();
+      const workbook = XLSX.read(buf, { type: "array", cellDates: false });
+      const { filas, hojas } = parseWorkbookClaro(workbook);
+      if (filas.length === 0) {
+        throw new Error("Se pudo descargar el archivo pero no se reconoció ninguna hoja con el formato esperado.");
+      }
+      setPendingImport({ filas, hojas, nombreArchivo: "Google Sheets (actualización automática)" });
+      setShowImportConfirm(true);
+    } catch (e) {
+      setError(
+        "No se pudo traer los datos desde Google Sheets. Lo más probable es que la hoja no esté compartida como " +
+        "\"Cualquiera con el link puede ver\" (Google bloquea la descarga si no). Revisá el permiso de la hoja, o " +
+        "seguí usando \"Cargar Excel\" mientras tanto. Detalle: " + (e.message || "error desconocido")
+      );
+    } finally {
+      setBusy(false);
+    }
+  }, [sheetUrl]);
+
+  const guardarSheetUrl = useCallback(async () => {
+    const limpio = sheetUrlDraft.trim();
+    setSheetUrl(limpio);
+    await persist({ sheetUrl: limpio });
+    setShowSheetConfig(false);
+  }, [sheetUrlDraft, persist]);
+
+  const confirmarImport = useCallback(async () => {
+    if (!pendingImport) return;
+    const nuevaFecha = todayISO();
+    const next = importMode === "agregar" ? [...pendingImport.filas, ...rows] : pendingImport.filas;
+    setRows(next);
+    setLastUpload(nuevaFecha);
+    await persist({ rows: next, lastUpload: nuevaFecha });
+    setShowImportConfirm(false);
+    setPendingImport(null);
+  }, [pendingImport, importMode, rows, persist]);
+
+  const resetAll = useCallback(async () => {
+    setRows([]);
+    setLastUpload(null);
+    setShowResetConfirm(false);
+    const ok = await storageSet({ rows: [], lastUpload: null, sheetUrl });
+    if (!ok) setError("No se pudo reiniciar la base compartida.");
+  }, [sheetUrl]);
+
+  const exportJSON = () => {
+    const payload = { exportedAt: new Date().toISOString(), rows, lastUpload };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `Eventuales_Claro_Backup_${todayISO()}.json`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportJSONFile = async (file) => {
+    setError("");
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      if (!parsed || !Array.isArray(parsed.rows)) {
+        throw new Error("El archivo no tiene el formato esperado (copia de seguridad exportada desde este mismo sistema).");
+      }
+      setRows(parsed.rows);
+      setLastUpload(parsed.lastUpload || null);
+      await persist({ rows: parsed.rows, lastUpload: parsed.lastUpload || null });
+    } catch (e) {
+      setError(e.message || "No se pudo leer el archivo de copia de seguridad.");
+    }
+  };
+
+  const exportExcel = async () => {
+    const data = rowsFiltradas.map((r) => {
+      const out = {};
+      COLUMNS.forEach((c) => { out[c.label] = r[c.key] || ""; });
+      return out;
+    });
+    const ws = XLSX.utils.json_to_sheet(data);
+    ws["!cols"] = COLUMNS.map((c) => ({ wch: Math.max(10, Math.round(c.width / 7)) }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Eventuales Claro");
+    XLSX.writeFile(wb, `Eventuales_Claro_${todayISO()}.xlsx`);
+  };
+
+  const edificios = useMemo(() => {
+    const set = new Set(rows.map((r) => (r.edificio || "").trim()).filter(Boolean));
+    return Array.from(set).sort();
+  }, [rows]);
+
+  const estados = useMemo(() => {
+    const set = new Set(rows.map((r) => (r.estadoNota || "").trim()).filter(Boolean));
+    return Array.from(set).sort();
+  }, [rows]);
+
+  const rowsFiltradas = useMemo(() => {
+    let out = rows;
+    if (fEdificio) out = out.filter((r) => (r.edificio || "") === fEdificio);
+    if (fEstado) out = out.filter((r) => (r.estadoNota || "") === fEstado);
+    if (busqueda.trim()) {
+      const q = busqueda.trim().toLowerCase();
+      out = out.filter((r) => COLUMNS.some((c) => String(r[c.key] || "").toLowerCase().includes(q)));
+    }
+    return out;
+  }, [rows, fEdificio, fEstado, busqueda]);
+
+  const estadoCounts = useMemo(() => {
+    const counts = {};
+    rows.forEach((r) => { const e = (r.estadoNota || "").trim() || "Sin estado"; counts[e] = (counts[e] || 0) + 1; });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [rows]);
+
+  const montoTotal = useMemo(() => {
+    return rows.reduce((acc, r) => {
+      const n = Number(String(r.montoSIva || "").replace(/[^0-9.,-]/g, "").replace(",", "."));
+      return acc + (Number.isFinite(n) ? n : 0);
+    }, 0);
+  }, [rows]);
+
+  const ultimaActualizacion = useMemo(() => {
+    if (!lastUpload) return null;
+    const [y, m, day] = lastUpload.split("-");
+    return `${day}/${m}/${y}`;
+  }, [lastUpload]);
+
+  if (!loaded) {
+    return <div className="flex items-center justify-center h-64" style={{ color: C.textMuted }}>Cargando base de control...</div>;
+  }
+
+  return (
+    <div style={{ fontFamily: "'Inter', system-ui, sans-serif", minHeight: "100vh" }} className="px-4 sm:px-6 pt-5 sm:pt-6 pb-10">
+
+      <input ref={filesInputRef} type="file" accept=".xlsx,.xls" className="hidden"
+        onChange={(e) => { if (e.target.files && e.target.files.length) handleFiles(e.target.files); e.target.value = ""; }} />
+      <input ref={jsonInputRef} type="file" accept=".json" className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportJSONFile(f); e.target.value = ""; }} />
+
+      {/* ENCABEZADO */}
+      <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background: "#FFFFFF", border: `1px solid ${C.border}` }}>
+            <img src={CLARO_LOGO} alt="Claro" className="w-full h-full object-contain" />
+          </div>
+          <div>
+            <h1 className="text-lg sm:text-xl font-extrabold tracking-tight leading-tight" style={{ color: C.textLight }}>CONTROL DE VENTAS</h1>
+            <p className="text-xs sm:text-sm" style={{ color: C.textMuted }}>Eventuales Claro (AMX)</p>
+          </div>
+
+          {/* Acciones: mismos cinco botones que Telefónica, más sincronización con Google Sheets */}
+          <div className="flex items-center gap-1.5 ml-2">
+            <button onClick={() => filesInputRef.current?.click()} disabled={busy}
+              title={busy ? "Procesando..." : "Cargar Excel"}
+              className="p-2.5 rounded-xl" style={{ background: `linear-gradient(135deg, ${C.primary}, ${C.violet})`, color: "#FFFFFF", opacity: busy ? 0.6 : 1 }}>
+              <IconUpload size={16} />
+            </button>
+            <button onClick={handleFetchFromSheet} disabled={busy}
+              title={sheetUrl ? (busy ? "Actualizando..." : "Actualizar desde Google Sheets") : "Configurar link de Google Sheets"}
+              className="p-2.5 rounded-xl" style={{ background: `linear-gradient(135deg, #4285F4, #1A56C4)`, color: "#FFFFFF", opacity: busy ? 0.6 : 1 }}>
+              <IconCloud size={16} />
+            </button>
+            <button onClick={agregarFila} title="Agregar fila"
+              className="p-2.5 rounded-xl" style={{ backgroundColor: C.cardAlt, color: C.textLight, border: `1px solid ${C.border}` }}>
+              <IconPlus size={16} />
+            </button>
+            <button onClick={exportExcel} title="Exportar a Excel"
+              className="p-2.5 rounded-xl" style={{ background: `linear-gradient(135deg, ${C.teal}, #1F6B41)`, color: "#FFFFFF" }}>
+              <IconDownload size={16} />
+            </button>
+            <button onClick={exportJSON} title="Guardar copia (JSON)"
+              className="p-2.5 rounded-xl" style={{ backgroundColor: C.cardAlt, color: C.textLight, border: `1px solid ${C.border}` }}>
+              <IconSave size={16} />
+            </button>
+            <button onClick={() => jsonInputRef.current?.click()} title="Restaurar copia (JSON)"
+              className="p-2.5 rounded-xl" style={{ backgroundColor: C.cardAlt, color: C.textLight, border: `1px solid ${C.border}` }}>
+              <IconFileUp size={16} />
+            </button>
+            <button onClick={() => setShowResetConfirm(true)} title="Reiniciar base de control"
+              className="p-2.5 rounded-xl" style={{ backgroundColor: C.roseSoft, color: C.rose }}>
+              <IconTrash size={16} />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button onClick={() => refreshShared(true)} disabled={refreshing}
+            title={lastSync ? `Última actualización: ${lastSync.toLocaleTimeString("es-AR")}` : "Actualizar"}
+            className="flex items-center gap-1.5 px-2.5 py-2.5 rounded-xl text-sm font-semibold"
+            style={{ backgroundColor: C.cardAlt, color: C.textLight, border: `1px solid ${C.border}`, opacity: refreshing ? 0.6 : 1 }}>
+            <IconRefresh size={15} className={refreshing ? "spin-icon" : ""} />
+          </button>
+          <button onClick={() => setShowInfoPanel(true)} title="Información"
+            className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-semibold"
+            style={{ border: `1px solid ${C.border}`, backgroundColor: C.card, color: C.textLight }}>
+            <IconInfo size={16} />
+          </button>
+        </div>
+      </div>
+      {ultimaActualizacion && <div className="text-xs mb-3" style={{ color: C.textMuted }}>Última carga: {ultimaActualizacion}</div>}
+      <div className="mb-2" />
+
+      {error && (
+        <div className="mb-4 px-4 py-3 rounded-xl text-sm flex items-center justify-between" style={{ backgroundColor: C.roseSoft, color: C.rose }}>
+          <span className="flex items-center gap-2"><IconAlert size={16} /> {error}</span>
+          <button onClick={() => setError("")}><IconX size={16} /></button>
+        </div>
+      )}
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <KPI label="Eventuales cargados" value={rows.length} accent={C.primary} />
+        <KPI label="Edificios distintos" value={edificios.length} accent={C.violet} />
+        <KPI label="Monto S/IVA total" value={montoTotal ? `$${montoTotal.toLocaleString("es-AR", { maximumFractionDigits: 0 })}` : "—"} accent={C.teal} />
+        <KPI label="Pendientes" value={rows.filter((r) => String(r.estadoNota || "").toUpperCase().includes("PENDIENTE")).length} accent={C.orange} />
+      </div>
+
+      <Card className="p-5 mb-4">
+        <h2 className="text-sm font-bold mb-3" style={{ color: C.textLight }}>Estado de los eventuales</h2>
+        {estadoCounts.length === 0 ? (
+          <div className="text-xs" style={{ color: C.textMuted }}>Sin datos cargados todavía.</div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+            {estadoCounts.map(([estado, count]) => {
+              const colors = colorParaEstado(estado);
+              return (
+                <button key={estado} onClick={() => setFEstado(estado === "Sin estado" ? "" : estado)}
+                  className="flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold text-left"
+                  style={{ backgroundColor: colors.bg, color: colors.fg }}>
+                  <span className="truncate">{estado}</span>
+                  <span className="flex-shrink-0 ml-2">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      {/* FILTROS */}
+      <div className="flex flex-col sm:flex-row gap-2 mb-4 flex-wrap">
+        <div className="flex-1 min-w-[200px] relative">
+          <IconSearch size={15} className="absolute left-3 top-1/2 -translate-y-1/2" color={C.textMuted} />
+          <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar en cualquier campo..."
+            className="w-full pl-9 pr-3 py-2.5 rounded-xl text-sm outline-none"
+            style={{ border: `1px solid ${C.border}`, backgroundColor: C.card, color: C.textLight }} />
+        </div>
+        <select value={fEdificio} onChange={(e) => setFEdificio(e.target.value)}
+          className="px-3 py-2.5 rounded-xl text-sm outline-none" style={{ border: `1px solid ${C.border}`, backgroundColor: C.card, color: C.textLight }}>
+          <option value="">Todos los edificios</option>
+          {edificios.map((e) => <option key={e} value={e}>{e}</option>)}
+        </select>
+        <select value={fEstado} onChange={(e) => setFEstado(e.target.value)}
+          className="px-3 py-2.5 rounded-xl text-sm outline-none" style={{ border: `1px solid ${C.border}`, backgroundColor: C.card, color: C.textLight }}>
+          <option value="">Todos los estados</option>
+          {estados.map((e) => <option key={e} value={e}>{e}</option>)}
+        </select>
+        {(busqueda || fEdificio || fEstado) && (
+          <button onClick={() => { setBusqueda(""); setFEdificio(""); setFEstado(""); }}
+            className="px-3 py-2.5 rounded-xl text-sm font-semibold" style={{ backgroundColor: C.cardAlt, color: C.textLight }}>
+            Limpiar filtros
+          </button>
+        )}
+      </div>
+
+      {/* TABLA EDITABLE */}
+      <Card className="overflow-hidden mb-6">
+        <div className="overflow-x-auto max-h-[65vh] overflow-y-auto">
+          <table className="w-full text-sm grid-editable">
+            <thead style={{ backgroundColor: C.cardAlt, position: "sticky", top: 0, zIndex: 1 }}>
+              <tr>
+                {COLUMNS.map((c) => (
+                  <th key={c.key} className="text-left px-2 py-2.5 font-semibold text-xs uppercase tracking-wide whitespace-nowrap" style={{ color: C.textMuted, minWidth: c.width }}>
+                    {c.label}
+                  </th>
+                ))}
+                <th className="text-left px-2 py-2.5 font-semibold text-xs uppercase tracking-wide" style={{ color: C.textMuted }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rowsFiltradas.length === 0 && (
+                <tr><td colSpan={COLUMNS.length + 1} className="px-4 py-10 text-center" style={{ color: C.textMuted }}>
+                  {rows.length === 0
+                    ? "Sin eventuales cargados todavía. Usá \"Cargar Excel\" para importar la planilla, o \"Agregar fila\" para empezar a mano."
+                    : "Ningún resultado con estos filtros."}
+                </td></tr>
+              )}
+              {rowsFiltradas.map((r) => (
+                <tr key={r.id} style={{ borderTop: `1px solid ${C.border}` }} className="hover:bg-black/[0.015] align-top">
+                  {COLUMNS.map((c) => (
+                    <td key={c.key} className="px-1 py-1" style={{ minWidth: c.width }}>
+                      {c.key === "estadoNota" ? (
+                        <div style={{ backgroundColor: colorParaEstado(r[c.key]).bg, borderRadius: 6 }}>
+                          <CeldaEditable value={r[c.key]} onCommit={(v) => actualizarCelda(r.id, c.key, v)} />
+                        </div>
+                      ) : (
+                        <CeldaEditable value={r[c.key]} onCommit={(v) => actualizarCelda(r.id, c.key, v)}
+                          mono={c.key === "oc" || c.key === "fc"} />
+                      )}
+                    </td>
+                  ))}
+                  <td className="px-1 py-1">
+                    <button onClick={() => eliminarFila(r.id)} title="Eliminar fila"
+                      className="p-1.5 rounded-md hover:opacity-80" style={{ color: C.rose, backgroundColor: C.roseSoft }}>
+                      <IconTrash size={13} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+      <div className="text-xs mb-6" style={{ color: C.textMuted }}>
+        Mostrando {rowsFiltradas.length} de {rows.length} eventuales. Los cambios en cualquier celda se guardan solos al salir de ella.
+      </div>
+
+      {/* MODAL: confirmar importación */}
+      {showImportConfirm && pendingImport && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ backgroundColor: "rgba(20,15,15,0.45)" }}>
+          <Card className="p-6 max-w-md w-full">
+            <div className="flex items-center gap-2 mb-3">
+              <IconUpload size={18} color={C.primary} />
+              <span className="font-bold text-sm" style={{ color: C.textLight }}>Confirmar importación</span>
+            </div>
+            <p className="text-sm mb-3" style={{ color: C.textMuted }}>
+              Se encontraron <strong style={{ color: C.textLight }}>{pendingImport.filas.length}</strong> eventuales en
+              {" "}{pendingImport.hojas.length === 1 ? `la hoja "${pendingImport.hojas[0]}"` : `las hojas: ${pendingImport.hojas.join(", ")}`} del
+              archivo <strong style={{ color: C.textLight }}>{pendingImport.nombreArchivo}</strong>.
+            </p>
+            <div className="flex flex-col gap-2 mb-4">
+              <label className="flex items-center gap-2 text-sm px-3 py-2.5 rounded-xl cursor-pointer" style={{ border: `1px solid ${importMode === "reemplazar" ? C.primary : C.border}`, backgroundColor: importMode === "reemplazar" ? C.primarySoft : "transparent" }}>
+                <input type="radio" checked={importMode === "reemplazar"} onChange={() => setImportMode("reemplazar")} />
+                <span style={{ color: C.textLight }}><strong>Reemplazar todo</strong> — borra los {rows.length} eventuales actuales y deja solo los de este archivo.</span>
+              </label>
+              <label className="flex items-center gap-2 text-sm px-3 py-2.5 rounded-xl cursor-pointer" style={{ border: `1px solid ${importMode === "agregar" ? C.primary : C.border}`, backgroundColor: importMode === "agregar" ? C.primarySoft : "transparent" }}>
+                <input type="radio" checked={importMode === "agregar"} onChange={() => setImportMode("agregar")} />
+                <span style={{ color: C.textLight }}><strong>Agregar como filas nuevas</strong> — conserva los {rows.length} actuales y suma estos arriba (puede duplicar si ya estaban cargados).</span>
+              </label>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => { setShowImportConfirm(false); setPendingImport(null); }}
+                className="px-4 py-2 rounded-xl text-sm font-semibold" style={{ backgroundColor: C.cardAlt, color: C.textLight }}>
+                Cancelar
+              </button>
+              <button onClick={confirmarImport}
+                className="px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: `linear-gradient(135deg, ${C.primary}, ${C.violet})`, color: "#FFFFFF" }}>
+                Confirmar
+              </button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* MODAL: confirmar reinicio */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ backgroundColor: "rgba(20,15,15,0.45)" }}>
+          <Card className="p-6 max-w-sm w-full">
+            <div className="flex items-center gap-2 mb-3">
+              <IconAlert size={18} color={C.rose} />
+              <span className="font-bold text-sm" style={{ color: C.textLight }}>¿Reiniciar la base de control?</span>
+            </div>
+            <p className="text-sm mb-4" style={{ color: C.textMuted }}>
+              Se van a borrar los {rows.length} eventuales cargados para todos los que usan este link. Esta acción no se puede deshacer.
+              Si querés, primero tocá "Guardar copia (JSON)" para tener un respaldo.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowResetConfirm(false)} className="px-4 py-2 rounded-xl text-sm font-semibold" style={{ backgroundColor: C.cardAlt, color: C.textLight }}>Cancelar</button>
+              <button onClick={resetAll} className="px-4 py-2 rounded-xl text-sm font-semibold" style={{ backgroundColor: C.rose, color: "#FFFFFF" }}>Sí, reiniciar</button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* MODAL: información */}
+      {showInfoPanel && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ backgroundColor: "rgba(20,15,15,0.45)" }} onClick={() => setShowInfoPanel(false)}>
+          <div className="w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl overflow-hidden" style={{ backgroundColor: C.card }} onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: `1px solid ${C.border}`, backgroundColor: C.cardAlt }}>
+              <span className="font-bold text-sm flex items-center gap-2" style={{ color: C.textLight }}><IconInfo size={16} /> Información</span>
+              <button onClick={() => setShowInfoPanel(false)}><IconX size={18} color={C.textMuted} /></button>
+            </div>
+            <div className="p-5 text-xs leading-relaxed" style={{ color: C.textMuted }}>
+              Los datos se guardan en la base compartida configurada en esta página: cualquier persona que abra el link publicado ve y edita la misma base.
+              {lastSync && <> Última actualización: <strong style={{ color: C.textLight }}>{lastSync.toLocaleTimeString("es-AR")}</strong>.</>}
+              <br /><br />
+              A diferencia del sistema de Telefónica, acá no hay detección automática de altas/modificaciones: esta es una planilla
+              editable en vivo. Cada celda se guarda sola al salir de ella, y "Cargar Excel" te deja elegir si reemplazar todo o
+              sumar filas nuevas.
+              <br /><br />
+              Recomendado: antes de hacer cambios grandes (una carga masiva o un reinicio), tocá <strong style={{ color: C.textLight }}>"Guardar copia (JSON)"</strong> y
+              conservá ese archivo como respaldo.
+              <br /><br />
+              <strong style={{ color: C.textLight }}>Para instalarla como app en el celular:</strong> abrí este link desde el navegador del teléfono
+              y elegí "Agregar a pantalla de inicio" desde el menú (⋮ o el botón de compartir).
+              <br /><br />
+              <strong style={{ color: C.textLight }}>Actualizar desde Google Sheets (ícono azul de nube):</strong> trae el archivo completo
+              desde el link configurado y te deja elegir si reemplazar todo o agregar como filas nuevas, igual que "Cargar Excel".
+              Solo funciona si la hoja está compartida como "Cualquiera con el link puede ver" — si Google la bloquea, seguí usando
+              "Cargar Excel" con la descarga manual mientras tanto.
+              {sheetUrl ? (
+                <div className="mt-2 px-3 py-2 rounded-lg text-[11px] break-all" style={{ backgroundColor: C.cardAlt, color: C.textLight }}>{sheetUrl}</div>
+              ) : (
+                <div className="mt-2 text-[11px]" style={{ color: C.rose }}>Todavía no hay ningún link configurado.</div>
+              )}
+              <button onClick={() => { setSheetUrlDraft(sheetUrl); setShowInfoPanel(false); setShowSheetConfig(true); }}
+                className="mt-2 text-xs font-semibold px-3 py-2 rounded-lg" style={{ backgroundColor: C.primarySoft, color: C.primary }}>
+                {sheetUrl ? "Cambiar el link" : "Configurar el link"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: configurar link de Google Sheets */}
+      {showSheetConfig && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ backgroundColor: "rgba(20,15,15,0.45)" }}>
+          <Card className="p-6 max-w-md w-full">
+            <div className="flex items-center gap-2 mb-3">
+              <IconCloud size={18} color="#4285F4" />
+              <span className="font-bold text-sm" style={{ color: C.textLight }}>Link de Google Sheets</span>
+            </div>
+            <p className="text-sm mb-3" style={{ color: C.textMuted }}>
+              Pegá el link completo de la hoja (el mismo que se ve en la barra de direcciones al tenerla abierta). Este link se
+              guarda para todos los que usan la app.
+            </p>
+            <input value={sheetUrlDraft} onChange={(e) => setSheetUrlDraft(e.target.value)}
+              placeholder="https://docs.google.com/spreadsheets/d/..."
+              className="w-full px-3 py-2.5 rounded-xl text-sm outline-none mb-2"
+              style={{ border: `1px solid ${C.border}`, backgroundColor: C.cardAlt, color: C.textLight }} />
+            <p className="text-xs mb-4" style={{ color: C.textMuted }}>
+              Importante: la hoja tiene que estar compartida como <strong style={{ color: C.textLight }}>"Cualquiera con el link puede ver"</strong> (Compartir →
+              Acceso general), o Google va a bloquear la descarga automática.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowSheetConfig(false)} className="px-4 py-2 rounded-xl text-sm font-semibold" style={{ backgroundColor: C.cardAlt, color: C.textLight }}>Cancelar</button>
+              <button onClick={guardarSheetUrl} className="px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: `linear-gradient(135deg, #4285F4, #1A56C4)`, color: "#FFFFFF" }}>Guardar</button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+
+</script>
+</body>
+</html>
