@@ -259,15 +259,20 @@ function dedupeFilas(filas) {
   return resultado;
 }
 
-/* Lee un workbook y arma filas a partir de TODAS las hojas cuyo
-   encabezado reconoce como planilla de eventuales (así entran tanto
-   "Eventuales Claro" como continuaciones tipo "Hoja 2"); ignora hojas
-   que no matchean lo suficiente (ej. el padrón de edificios, o una
-   tabla dinámica). */
+/* Lee un workbook y arma filas a partir ÚNICAMENTE de la hoja
+   "Eventuales Claro" (sin importar mayúsculas, acentos o espacios de
+   más). El resto de las hojas del archivo (padrón de edificios, tablas
+   dinámicas, hojas de trabajo, etc.) se ignoran siempre, aunque su
+   encabezado llegue a "parecerse" al de eventuales. */
+function esHojaEventualesClaro(nombreHoja) {
+  return normalizeHeader(nombreHoja) === "eventuales claro";
+}
 function parseWorkbookClaro(workbook) {
   const filasTotales = [];
   const hojasUsadas = [];
-  workbook.SheetNames.forEach((nombreHoja) => {
+  const nombreObjetivo = workbook.SheetNames.find(esHojaEventualesClaro);
+  const hojasAProcesar = nombreObjetivo ? [nombreObjetivo] : [];
+  hojasAProcesar.forEach((nombreHoja) => {
     const sheet = workbook.Sheets[nombreHoja];
     const matriz = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
     // Busca, entre las primeras filas, la que más columnas conocidas mapea.
@@ -473,7 +478,7 @@ function App() {
       const workbook = XLSX.read(buf, { type: "array", cellDates: false });
       const { filas, hojas } = parseWorkbookClaro(workbook);
       if (filas.length === 0) {
-        throw new Error("No se reconoció ninguna hoja con el formato esperado (Ppto, Eventual, Edificio, Referente, ...).");
+        throw new Error("No se encontró una hoja llamada \"Eventuales Claro\" con el formato esperado (Ppto, Eventual, Edificio, Referente, ...).");
       }
       setPendingImport({ filas, hojas, nombreArchivo: file.name });
       setShowImportConfirm(true);
@@ -497,7 +502,7 @@ function App() {
       const workbook = XLSX.read(buf, { type: "array", cellDates: false });
       const { filas, hojas } = parseWorkbookClaro(workbook);
       if (filas.length === 0) {
-        throw new Error("Se pudo descargar el archivo pero no se reconoció ninguna hoja con el formato esperado.");
+        throw new Error("Se pudo descargar el archivo pero no se encontró una hoja llamada \"Eventuales Claro\" con el formato esperado.");
       }
       setPendingImport({ filas, hojas, nombreArchivo: "Google Sheets (actualización automática)" });
       setShowImportConfirm(true);
