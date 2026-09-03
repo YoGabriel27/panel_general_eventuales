@@ -303,8 +303,11 @@ function parseWorkbookClaro(workbook) {
         else if (typeof v === "number") v = String(v);
         nueva[campo] = String(v).trim();
       });
-      // Salteá filas realmente vacías (sin descripción ni edificio)
-      if (!nueva.descripcion && !nueva.edificio) continue;
+      // Solo se considera un eventual real cuando la fila tiene AMBOS datos:
+      // número de Ppto y descripción. Si a una tarea le falta el Ppto (queda
+      // en blanco) o la descripción, no se cuenta como eventual — evita
+      // sumar líneas sueltas o IDs precargados sin datos.
+      if (!nueva.ppto || !nueva.descripcion) continue;
       filasTotales.push(nueva);
     }
   });
