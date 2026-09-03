@@ -102,6 +102,7 @@ const IconSearch = (p) => <Icon {...p}><circle cx="11" cy="11" r="7" /><path d="
 const IconRefresh = (p) => <Icon {...p}><path d="M20 11A8 8 0 0 0 6.3 6.3L4 8.6" /><path d="M4 4v4.6h4.6" /><path d="M4 13a8 8 0 0 0 13.7 4.7l2.3-2.3" /><path d="M20 20v-4.6h-4.6" /></Icon>;
 const IconCloud = (p) => <Icon {...p}><path d="M7 18h10a4 4 0 0 0 0-8 5.5 5.5 0 0 0-10.5-1.5A4.5 4.5 0 0 0 7 18Z" /><path d="M12 12v6" /><path d="M9.5 15.5 12 13l2.5 2.5" /></Icon>;
 const IconInfo = (p) => <Icon {...p}><circle cx="12" cy="12" r="9" /><path d="M12 11v5.5" /><path d="M12 7.5h.01" /></Icon>;
+const IconLayers = (p) => <Icon {...p}><path d="M12 3 3 8l9 5 9-5-9-5Z" /><path d="M3 13l9 5 9-5" /></Icon>;
 
 /* ---------------------------------------------------------
    SUPABASE — mismo proyecto que Telefónica, otra clave en app_state.
@@ -229,6 +230,34 @@ function detectarColumna(headerNorm) {
 }
 
 const CAMPOS_FECHA = new Set(["fechaRecepcion", "fechaEnvio", "fechaAprobacion", "fechaEjecucion", "fechaActualizacion"]);
+
+/* ---------------------------------------------------------
+   DEDUPLICACIÓN DE EVENTUALES
+   Un mismo eventual puede volver a aparecer al reimportar la planilla
+   compartida (porque alguien la modificó). No nos interesa guardar el
+   historial de esos duplicados: solo la versión más actualizada. Se
+   identifica un eventual por Ppto + Cta + Eventual + Edificio, y ante
+   dos filas con la misma clave se conserva la primera del arreglo (por
+   eso, al fusionar, las filas recién importadas van siempre primero).
+--------------------------------------------------------- */
+function claveEventual(r) {
+  return ["ppto", "cta", "descripcion", "edificio"]
+    .map((k) => String((r && r[k]) || "").trim().toUpperCase())
+    .join("|");
+}
+function dedupeFilas(filas) {
+  const vistos = new Set();
+  const resultado = [];
+  filas.forEach((r) => {
+    const clave = claveEventual(r);
+    // Filas sin ningún dato clave (todas vacías) no se consideran duplicadas entre sí.
+    if (clave === "|||") { resultado.push(r); return; }
+    if (vistos.has(clave)) return;
+    vistos.add(clave);
+    resultado.push(r);
+  });
+  return resultado;
+}
 
 /* Lee un workbook y arma filas a partir de TODAS las hojas cuyo
    encabezado reconoce como planilla de eventuales (así entran tanto
@@ -360,6 +389,7 @@ function App() {
 
   const [showInfoPanel, setShowInfoPanel] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [dupMensaje, setDupMensaje] = useState("");
   const [showImportConfirm, setShowImportConfirm] = useState(false);
   const [pendingImport, setPendingImport] = useState(null);
   const [importMode, setImportMode] = useState("reemplazar"); // reemplazar | agregar
@@ -492,13 +522,31 @@ function App() {
   const confirmarImport = useCallback(async () => {
     if (!pendingImport) return;
     const nuevaFecha = todayISO();
-    const next = importMode === "agregar" ? [...pendingImport.filas, ...rows] : pendingImport.filas;
+    // Las filas recién importadas van primero para que, ante un eventual
+    // repetido, prevalezca siempre la información más actualizada.
+    const next = importMode === "agregar"
+      ? dedupeFilas([...pendingImport.filas, ...rows])
+      : pendingImport.filas;
     setRows(next);
     setLastUpload(nuevaFecha);
     await persist({ rows: next, lastUpload: nuevaFecha });
     setShowImportConfirm(false);
     setPendingImport(null);
   }, [pendingImport, importMode, rows, persist]);
+
+  const quitarDuplicados = useCallback(async () => {
+    setRows((prev) => {
+      const next = dedupeFilas(prev);
+      const eliminados = prev.length - next.length;
+      setDupMensaje(
+        eliminados > 0
+          ? `Se eliminaron ${eliminados} registro${eliminados === 1 ? "" : "s"} duplicado${eliminados === 1 ? "" : "s"}.`
+          : "No se encontraron registros duplicados."
+      );
+      if (eliminados > 0) persist({ rows: next });
+      return next;
+    });
+  }, [persist]);
 
   const resetAll = useCallback(async () => {
     setRows([]);
@@ -638,6 +686,10 @@ function App() {
               className="p-2.5 rounded-xl" style={{ backgroundColor: C.cardAlt, color: C.textLight, border: `1px solid ${C.border}` }}>
               <IconFileUp size={16} />
             </button>
+            <button onClick={quitarDuplicados} title="Quitar eventuales duplicados"
+              className="p-2.5 rounded-xl" style={{ backgroundColor: C.cardAlt, color: C.textLight, border: `1px solid ${C.border}` }}>
+              <IconLayers size={16} />
+            </button>
             <button onClick={() => setShowResetConfirm(true)} title="Reiniciar base de control"
               className="p-2.5 rounded-xl" style={{ backgroundColor: C.roseSoft, color: C.rose }}>
               <IconTrash size={16} />
@@ -666,6 +718,13 @@ function App() {
         <div className="mb-4 px-4 py-3 rounded-xl text-sm flex items-center justify-between" style={{ backgroundColor: C.roseSoft, color: C.rose }}>
           <span className="flex items-center gap-2"><IconAlert size={16} /> {error}</span>
           <button onClick={() => setError("")}><IconX size={16} /></button>
+        </div>
+      )}
+
+      {dupMensaje && (
+        <div className="mb-4 px-4 py-3 rounded-xl text-sm flex items-center justify-between" style={{ backgroundColor: C.tealSoft, color: C.teal }}>
+          <span className="flex items-center gap-2"><IconLayers size={16} /> {dupMensaje}</span>
+          <button onClick={() => setDupMensaje("")}><IconX size={16} /></button>
         </div>
       )}
 
@@ -796,7 +855,7 @@ function App() {
               </label>
               <label className="flex items-center gap-2 text-sm px-3 py-2.5 rounded-xl cursor-pointer" style={{ border: `1px solid ${importMode === "agregar" ? C.primary : C.border}`, backgroundColor: importMode === "agregar" ? C.primarySoft : "transparent" }}>
                 <input type="radio" checked={importMode === "agregar"} onChange={() => setImportMode("agregar")} />
-                <span style={{ color: C.textLight }}><strong>Agregar como filas nuevas</strong> — conserva los {rows.length} actuales y suma estos arriba (puede duplicar si ya estaban cargados).</span>
+                <span style={{ color: C.textLight }}><strong>Agregar como filas nuevas</strong> — conserva los {rows.length} actuales y suma estos arriba. Si un eventual ya estaba cargado (mismo Ppto, Cta, Eventual y Edificio), se actualiza con la información nueva en lugar de duplicarse.</span>
               </label>
             </div>
             <div className="flex gap-2 justify-end">
