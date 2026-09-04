@@ -103,6 +103,10 @@ const IconRefresh = (p) => <Icon {...p}><path d="M20 11A8 8 0 0 0 6.3 6.3L4 8.6"
 const IconCloud = (p) => <Icon {...p}><path d="M7 18h10a4 4 0 0 0 0-8 5.5 5.5 0 0 0-10.5-1.5A4.5 4.5 0 0 0 7 18Z" /><path d="M12 12v6" /><path d="M9.5 15.5 12 13l2.5 2.5" /></Icon>;
 const IconInfo = (p) => <Icon {...p}><circle cx="12" cy="12" r="9" /><path d="M12 11v5.5" /><path d="M12 7.5h.01" /></Icon>;
 const IconLayers = (p) => <Icon {...p}><path d="M12 3 3 8l9 5 9-5-9-5Z" /><path d="M3 13l9 5 9-5" /></Icon>;
+const IconSparkles = (p) => <Icon {...p}><path d="M12 3v4" /><path d="M12 17v4" /><path d="M3 12h4" /><path d="M17 12h4" /><path d="M5.6 5.6l2.8 2.8" /><path d="M15.6 15.6l2.8 2.8" /><path d="M18.4 5.6l-2.8 2.8" /><path d="M8.4 15.6l-2.8 2.8" /></Icon>;
+const IconArrowUp = (p) => <Icon {...p}><path d="M12 19V5" /><path d="M6 11l6-6 6 6" /></Icon>;
+const IconArrowDown = (p) => <Icon {...p}><path d="M12 5v14" /><path d="M6 13l6 6 6-6" /></Icon>;
+const IconArrowsUpDown = (p) => <Icon {...p}><path d="M8 7l4-4 4 4" /><path d="M8 17l4 4 4-4" /><path d="M12 3v18" /></Icon>;
 
 /* ---------------------------------------------------------
    SUPABASE — mismo proyecto que Telefónica, otra clave en app_state.
@@ -237,6 +241,21 @@ function detectarColumna(headerNorm) {
 
 const CAMPOS_FECHA = new Set(["fechaRecepcion", "fechaEnvio", "fechaAprobacion", "fechaEjecucion", "fechaActualizacion"]);
 
+/* Unifica los errores de tipeo más comunes del campo Estado (mayúsculas,
+   minúsculas, espacios) para que "Pendiente", "pendiente" y "PENDIENTE"
+   cuenten y filtren como un solo valor: "PENDIENTE". Cualquier otro texto
+   (por ejemplo una nota mal cargada en esta columna) se deja tal cual está,
+   sin tocarle las mayúsculas, para no inventar datos que no puso nadie. */
+function normalizarEstado(v) {
+  const t = String(v || "").trim();
+  if (!t) return "";
+  const up = t.toUpperCase();
+  if (up.includes("PENDIENTE")) return "PENDIENTE";
+  if (up.includes("FINALIZAD")) return "FINALIZADO";
+  if (up.includes("ANULAD")) return "ANULADO";
+  return t;
+}
+
 /* ---------------------------------------------------------
    DEDUPLICACIÓN DE EVENTUALES
    Un mismo eventual puede volver a aparecer al reimportar la planilla
@@ -307,7 +326,7 @@ function parseWorkbookClaro(workbook) {
         if (v === undefined || v === null) v = "";
         if (CAMPOS_FECHA.has(campo)) v = excelSerialToISO(v);
         else if (typeof v === "number") v = String(v);
-        nueva[campo] = String(v).trim();
+        nueva[campo] = campo === "estado" ? normalizarEstado(v) : String(v).trim();
       });
       // Solo se considera un eventual real cuando la fila tiene descripción.
       // El Ppto puede faltar (eventual todavía sin número asignado) y aun
@@ -458,7 +477,8 @@ function App() {
 
   const actualizarCelda = useCallback((id, campo, valor) => {
     setRows((prev) => {
-      const next = prev.map((r) => (r.id === id ? { ...r, [campo]: valor } : r));
+      const valorFinal = campo === "estado" ? normalizarEstado(valor) : valor;
+      const next = prev.map((r) => (r.id === id ? { ...r, [campo]: valorFinal } : r));
       persist({ rows: next });
       return next;
     });
@@ -564,6 +584,24 @@ function App() {
     });
   }, [persist]);
 
+  const normalizarEstadosCargados = useCallback(async () => {
+    setRows((prev) => {
+      let cambios = 0;
+      const next = prev.map((r) => {
+        const norm = normalizarEstado(r.estado);
+        if (norm !== (r.estado || "")) cambios++;
+        return norm !== (r.estado || "") ? { ...r, estado: norm } : r;
+      });
+      setDupMensaje(
+        cambios > 0
+          ? `Se unificaron ${cambios} estado${cambios === 1 ? "" : "s"} con mayúsculas o espacios distintos (Pendiente/PENDIENTE, Anulado/ANULADO, etc.).`
+          : "Todos los estados ya estaban unificados."
+      );
+      if (cambios > 0) persist({ rows: next });
+      return next;
+    });
+  }, [persist]);
+
   const resetAll = useCallback(async () => {
     setRows([]);
     setLastUpload(null);
@@ -611,6 +649,11 @@ function App() {
     XLSX.writeFile(wb, `Eventuales_Claro_${todayISO()}.xlsx`);
   };
 
+  const presupuestosDistintos = useMemo(() => {
+    const set = new Set(rows.map((r) => (r.ppto || "").trim()).filter(Boolean));
+    return set.size;
+  }, [rows]);
+
   const edificios = useMemo(() => {
     const set = new Set(rows.map((r) => (r.edificio || "").trim()).filter(Boolean));
     return Array.from(set).sort();
@@ -621,6 +664,37 @@ function App() {
     return Array.from(set).sort();
   }, [rows]);
 
+  // Filtro de texto por columna (encabezado de la tabla) + orden ascendente/
+  // descendente al hacer clic en el título de cada columna.
+  const [colFiltros, setColFiltros] = useState({});
+  const [sortConfig, setSortConfig] = useState({ key: null, dir: 1 });
+
+  const actualizarColFiltro = useCallback((key, valor) => {
+    setColFiltros((prev) => ({ ...prev, [key]: valor }));
+  }, []);
+
+  const handleSort = useCallback((key) => {
+    setSortConfig((prev) => {
+      if (prev.key !== key) return { key, dir: 1 };
+      if (prev.dir === 1) return { key, dir: -1 };
+      return { key: null, dir: 1 };
+    });
+  }, []);
+
+  const NUM_KEYS = useMemo(() => new Set(["ppto", "cta", "montoSIva"]), []);
+  const compararValores = useCallback((a, b, key) => {
+    const va = a[key] || "";
+    const vb = b[key] || "";
+    if (NUM_KEYS.has(key)) {
+      const na = parseFloat(String(va).replace(/[^0-9.,-]/g, "").replace(",", "."));
+      const nb = parseFloat(String(vb).replace(/[^0-9.,-]/g, "").replace(",", "."));
+      const fa = Number.isFinite(na) ? na : -Infinity;
+      const fb = Number.isFinite(nb) ? nb : -Infinity;
+      return fa - fb;
+    }
+    return String(va).localeCompare(String(vb), "es", { numeric: true, sensitivity: "base" });
+  }, [NUM_KEYS]);
+
   const rowsFiltradas = useMemo(() => {
     let out = rows;
     if (fEdificio) out = out.filter((r) => (r.edificio || "") === fEdificio);
@@ -629,8 +703,15 @@ function App() {
       const q = busqueda.trim().toLowerCase();
       out = out.filter((r) => COLUMNS.some((c) => String(r[c.key] || "").toLowerCase().includes(q)));
     }
+    Object.entries(colFiltros).forEach(([key, valor]) => {
+      const q = String(valor || "").trim().toLowerCase();
+      if (q) out = out.filter((r) => String(r[key] || "").toLowerCase().includes(q));
+    });
+    if (sortConfig.key) {
+      out = [...out].sort((a, b) => compararValores(a, b, sortConfig.key) * sortConfig.dir);
+    }
     return out;
-  }, [rows, fEdificio, fEstado, busqueda]);
+  }, [rows, fEdificio, fEstado, busqueda, colFiltros, sortConfig, compararValores]);
 
   const estadoCounts = useMemo(() => {
     const counts = {};
@@ -706,6 +787,10 @@ function App() {
               className="p-2.5 rounded-xl" style={{ backgroundColor: C.cardAlt, color: C.textLight, border: `1px solid ${C.border}` }}>
               <IconLayers size={16} />
             </button>
+            <button onClick={normalizarEstadosCargados} title="Unificar mayúsculas de Estado (Pendiente / PENDIENTE / pendiente → PENDIENTE)"
+              className="p-2.5 rounded-xl" style={{ backgroundColor: C.cardAlt, color: C.textLight, border: `1px solid ${C.border}` }}>
+              <IconSparkles size={16} />
+            </button>
             <button onClick={() => setShowResetConfirm(true)} title="Reiniciar base de control"
               className="p-2.5 rounded-xl" style={{ backgroundColor: C.roseSoft, color: C.rose }}>
               <IconTrash size={16} />
@@ -746,11 +831,15 @@ function App() {
       )}
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        <KPI label="Eventuales cargados" value={rows.length} accent={C.primary} />
-        <KPI label="Edificios distintos" value={edificios.length} accent={C.violet} />
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
+        <KPI label="Tareas de eventuales" value={rows.length} accent={C.primary} />
+        <KPI label="Presupuestos (Ppto)" value={presupuestosDistintos} accent={C.violet} />
+        <KPI label="Edificios distintos" value={edificios.length} accent={C.blue} />
         <KPI label="Monto S/IVA total" value={montoTotal ? `$${montoTotal.toLocaleString("es-AR", { maximumFractionDigits: 0 })}` : "—"} accent={C.teal} />
         <KPI label="Pendientes" value={rows.filter((r) => String(r.estado || "").toUpperCase().includes("PENDIENTE")).length} accent={C.orange} />
+      </div>
+      <div className="text-[11px] mb-4" style={{ color: C.textMuted }}>
+        "Tareas de eventuales" cuenta renglones (un mismo Ppto puede tener más de una tarea/eventual); "Presupuestos" cuenta números de Ppto distintos.
       </div>
 
       <Card className="p-5 mb-4">
@@ -806,12 +895,39 @@ function App() {
           <table className="w-full text-sm grid-editable">
             <thead style={{ backgroundColor: C.cardAlt, position: "sticky", top: 0, zIndex: 1 }}>
               <tr>
+                {COLUMNS.map((c) => {
+                  const activo = sortConfig.key === c.key;
+                  return (
+                    <th key={c.key} className="text-left px-2 pt-2.5 pb-1 font-semibold text-xs uppercase tracking-wide whitespace-nowrap" style={{ color: C.textMuted, minWidth: c.width }}>
+                      <button onClick={() => handleSort(c.key)}
+                        className="flex items-center gap-1 hover:opacity-80"
+                        style={{ color: activo ? C.primary : C.textMuted, background: "none", border: "none", padding: 0, cursor: "pointer", font: "inherit" }}
+                        title="Ordenar por esta columna">
+                        <span>{c.label}</span>
+                        {activo ? (sortConfig.dir === 1 ? <IconArrowUp size={12} /> : <IconArrowDown size={12} />) : <IconArrowsUpDown size={12} style={{ opacity: 0.35 }} />}
+                      </button>
+                    </th>
+                  );
+                })}
+                <th className="text-left px-2 pt-2.5 pb-1 font-semibold text-xs uppercase tracking-wide" style={{ color: C.textMuted }}></th>
+              </tr>
+              <tr>
                 {COLUMNS.map((c) => (
-                  <th key={c.key} className="text-left px-2 py-2.5 font-semibold text-xs uppercase tracking-wide whitespace-nowrap" style={{ color: C.textMuted, minWidth: c.width }}>
-                    {c.label}
+                  <th key={c.key} className="px-2 pb-2" style={{ minWidth: c.width }}>
+                    <input value={colFiltros[c.key] || ""} onChange={(e) => actualizarColFiltro(c.key, e.target.value)}
+                      placeholder="Filtrar..."
+                      className="w-full px-2 py-1 rounded-lg text-[11px] font-normal normal-case outline-none"
+                      style={{ border: `1px solid ${C.border}`, backgroundColor: C.card, color: C.textLight }} />
                   </th>
                 ))}
-                <th className="text-left px-2 py-2.5 font-semibold text-xs uppercase tracking-wide" style={{ color: C.textMuted }}></th>
+                <th className="px-2 pb-2">
+                  {Object.values(colFiltros).some((v) => v && v.trim()) && (
+                    <button onClick={() => setColFiltros({})} title="Limpiar filtros de columnas"
+                      className="p-1.5 rounded-md hover:opacity-80" style={{ color: C.textMuted, backgroundColor: C.card, border: `1px solid ${C.border}` }}>
+                      <IconX size={12} />
+                    </button>
+                  )}
+                </th>
               </tr>
             </thead>
             <tbody>
