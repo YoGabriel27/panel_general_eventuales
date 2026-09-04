@@ -193,7 +193,8 @@ const COLUMNS = [
   { key: "oc", label: "OC", width: 130 },
   { key: "fc", label: "FC", width: 130 },
   { key: "fechaActualizacion", label: "Fecha actualización", width: 110 },
-  { key: "estadoNota", label: "Estado / Nota", width: 180 },
+  { key: "estado", label: "Estado", width: 110 },
+  { key: "nota", label: "Nota", width: 220 },
 ];
 
 function filaVacia() {
@@ -225,7 +226,12 @@ function detectarColumna(headerNorm) {
   if (h === "oc") return "oc";
   if (h === "fc") return "fc";
   if (h.includes("actualiz") || h.includes("actaliz")) return "fechaActualizacion";
-  if (h.includes("estado") || h.includes("nota")) return "estadoNota";
+  // Estado y Nota son columnas separadas en la planilla real (antes se
+  // confundían en un solo campo y la columna "Nota" quedaba pisada por
+  // "Estado"). Si algún archivo viejo trae un único encabezado combinado
+  // ("Estado / Nota"), cae en "estado" igual, sin perder información.
+  if (h.includes("estado")) return "estado";
+  if (h.includes("nota")) return "nota";
   return null;
 }
 
@@ -303,11 +309,13 @@ function parseWorkbookClaro(workbook) {
         else if (typeof v === "number") v = String(v);
         nueva[campo] = String(v).trim();
       });
-      // Solo se considera un eventual real cuando la fila tiene AMBOS datos:
-      // número de Ppto y descripción. Si a una tarea le falta el Ppto (queda
-      // en blanco) o la descripción, no se cuenta como eventual — evita
-      // sumar líneas sueltas o IDs precargados sin datos.
-      if (!nueva.ppto || !nueva.descripcion) continue;
+      // Solo se considera un eventual real cuando la fila tiene descripción.
+      // El Ppto puede faltar (eventual todavía sin número asignado) y aun
+      // así se importa, con ese campo en blanco para completarlo a mano
+      // después. Lo que sí se sigue descartando son los renglones
+      // precargados que solo tienen un número de Ppto y nada más (sin
+      // ningún otro dato real cargado).
+      if (!nueva.descripcion) continue;
       filasTotales.push(nueva);
     }
   });
@@ -609,14 +617,14 @@ function App() {
   }, [rows]);
 
   const estados = useMemo(() => {
-    const set = new Set(rows.map((r) => (r.estadoNota || "").trim()).filter(Boolean));
+    const set = new Set(rows.map((r) => (r.estado || "").trim()).filter(Boolean));
     return Array.from(set).sort();
   }, [rows]);
 
   const rowsFiltradas = useMemo(() => {
     let out = rows;
     if (fEdificio) out = out.filter((r) => (r.edificio || "") === fEdificio);
-    if (fEstado) out = out.filter((r) => (r.estadoNota || "") === fEstado);
+    if (fEstado) out = out.filter((r) => (r.estado || "") === fEstado);
     if (busqueda.trim()) {
       const q = busqueda.trim().toLowerCase();
       out = out.filter((r) => COLUMNS.some((c) => String(r[c.key] || "").toLowerCase().includes(q)));
@@ -626,7 +634,7 @@ function App() {
 
   const estadoCounts = useMemo(() => {
     const counts = {};
-    rows.forEach((r) => { const e = (r.estadoNota || "").trim() || "Sin estado"; counts[e] = (counts[e] || 0) + 1; });
+    rows.forEach((r) => { const e = (r.estado || "").trim() || "Sin estado"; counts[e] = (counts[e] || 0) + 1; });
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [rows]);
 
@@ -720,7 +728,7 @@ function App() {
         </div>
       </div>
       {ultimaActualizacion && <div className="text-xs mb-3" style={{ color: C.textMuted }}>Última carga: {ultimaActualizacion}</div>}
-      <div className="text-[10px] mb-3" style={{ color: C.textMuted, opacity: 0.6 }}>Versión del sistema: v2026-09-03 (solo hoja "Eventuales Claro", requiere Ppto + descripción)</div>
+      <div className="text-[10px] mb-3" style={{ color: C.textMuted, opacity: 0.6 }}>Versión del sistema: v2026-09-04 (solo hoja "Eventuales Claro", Estado y Nota como campos separados, requiere solo descripción)</div>
       <div className="mb-2" />
 
       {error && (
@@ -742,7 +750,7 @@ function App() {
         <KPI label="Eventuales cargados" value={rows.length} accent={C.primary} />
         <KPI label="Edificios distintos" value={edificios.length} accent={C.violet} />
         <KPI label="Monto S/IVA total" value={montoTotal ? `$${montoTotal.toLocaleString("es-AR", { maximumFractionDigits: 0 })}` : "—"} accent={C.teal} />
-        <KPI label="Pendientes" value={rows.filter((r) => String(r.estadoNota || "").toUpperCase().includes("PENDIENTE")).length} accent={C.orange} />
+        <KPI label="Pendientes" value={rows.filter((r) => String(r.estado || "").toUpperCase().includes("PENDIENTE")).length} accent={C.orange} />
       </div>
 
       <Card className="p-5 mb-4">
@@ -818,7 +826,7 @@ function App() {
                 <tr key={r.id} style={{ borderTop: `1px solid ${C.border}` }} className="hover:bg-black/[0.015] align-top">
                   {COLUMNS.map((c) => (
                     <td key={c.key} className="px-1 py-1" style={{ minWidth: c.width }}>
-                      {c.key === "estadoNota" ? (
+                      {c.key === "estado" ? (
                         <div style={{ backgroundColor: colorParaEstado(r[c.key]).bg, borderRadius: 6 }}>
                           <CeldaEditable value={r[c.key]} onCommit={(v) => actualizarCelda(r.id, c.key, v)} />
                         </div>
@@ -914,8 +922,10 @@ function App() {
               {lastSync && <> Última actualización: <strong style={{ color: C.textLight }}>{lastSync.toLocaleTimeString("es-AR")}</strong>.</>}
               <br /><br />
               A diferencia del sistema de Telefónica, acá no hay detección automática de altas/modificaciones: esta es una planilla
-              editable en vivo. Cada celda se guarda sola al salir de ella, y "Cargar Excel" te deja elegir si reemplazar todo o
-              sumar filas nuevas.
+              editable en vivo. Cada celda se guarda sola al salir de ella (botón "Agregar fila" para sumar un eventual a mano), y
+              "Cargar Excel" te deja elegir si reemplazar todo o sumar filas nuevas. Al importar, solo se toman los datos de la
+              hoja llamada "Eventuales Claro" del archivo — el resto de las hojas (padrones, tablas dinámicas, etc.) se ignora
+              siempre.
               <br /><br />
               Recomendado: antes de hacer cambios grandes (una carga masiva o un reinicio), tocá <strong style={{ color: C.textLight }}>"Guardar copia (JSON)"</strong> y
               conservá ese archivo como respaldo.
